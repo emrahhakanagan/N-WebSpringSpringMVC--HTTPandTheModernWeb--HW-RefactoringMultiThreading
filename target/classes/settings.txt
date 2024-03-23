@@ -1,0 +1,3 @@
+# Настройки сервера и клиента чата
+host=localhost
+serverPort=8080

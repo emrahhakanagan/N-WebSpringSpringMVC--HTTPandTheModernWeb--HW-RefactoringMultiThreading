@@ -1,66 +1,54 @@
 package org.example;
 
-import java.io.*;
+import java.io.BufferedOutputStream;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.LocalDateTime;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class Server {
-    private final int port;
-    private final List<String> validPaths = List.of("/index.html", "/spring.svg", "/spring.png"
-            , "/resources.html", "/styles.css", "/app.js", "/links.html", "/forms.html", "/classic.html"
-            , "/events.html", "/events.js");
     private final ExecutorService threadPool = Executors.newFixedThreadPool(64);
+    private final Map<String, Map<String, Handler>> handlers = new HashMap<>();
     private ServerPropertiesLoading serverPropertiesLoading;
+    private int port;
 
     public Server() {
         serverPropertiesLoading = new ServerPropertiesLoading();
         this.port = serverPropertiesLoading.getPort();
     }
 
-    public void startServer() {
-        try (final var serverSocket = new ServerSocket(port)) {
+    public void addHandler(String method, String path, Handler handler) {
+        handlers.computeIfAbsent(method, k -> new HashMap<>()).put(path, handler);
+    }
+
+    public void listen() {
+        try (ServerSocket serverSocket = new ServerSocket(port)) {
+            System.out.println("Server is listening on port " + port);
             while (true) {
-                final var socket = serverSocket.accept();
+                Socket socket = serverSocket.accept();
                 threadPool.submit(() -> handleConnection(socket));
             }
         } catch (IOException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
+            e.printStackTrace();
         }
     }
 
     private void handleConnection(Socket socket) {
-        try (
-                final var in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                final var out = new BufferedOutputStream(socket.getOutputStream());
-        ) {
-            final var requestLine = in.readLine();
-            final var parts = requestLine.split(" ");
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+             BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream())) {
 
-            if (parts.length != 3) {
-                socket.close();
-                return;
-            }
+            Request request = parseRequest(in);
+            Handler handler = findHandler(request);
 
-            final var path = parts[1];
-            if (!validPaths.contains(path)) {
-                sendNotFound(out);
-                return;
-            }
-
-            final var filePath = Path.of(".", "public", path);
-            final var mimeType = Files.probeContentType(filePath);
-
-            if (path.equals("/classic.html")) {
-                sendClassicResponse(filePath, mimeType, out);
+            if (handler != null) {
+                handler.handle(request, out);
             } else {
-                sendOKResponse(filePath, mimeType, out);
+                sendNotFound(out);
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -73,45 +61,45 @@ public class Server {
         }
     }
 
+    private Request parseRequest(BufferedReader in) throws IOException {
+        String requestLine = in.readLine();
+        if (requestLine == null || requestLine.isEmpty()) {
+            throw new IOException("Received an empty request");
+        }
+
+        String[] parts = requestLine.split(" ");
+        if (parts.length != 3) {
+            throw new IOException("Invalid request line: " + requestLine);
+        }
+        String method = parts[0];
+        String path = parts[1];
+
+        Map<String, String> headers = new HashMap<>();
+        String line;
+        while (!(line = in.readLine()).isEmpty()) {
+            int separator = line.indexOf(":");
+            if (separator == -1) {
+                continue;
+            }
+            String headerName = line.substring(0, separator).trim();
+            String headerValue = line.substring(separator + 1).trim();
+            headers.put(headerName, headerValue);
+        }
+
+        return new Request(method, path, headers, in);
+    }
+
+    private Handler findHandler(Request request) {
+        Map<String, Handler> methodHandlers = handlers.get(request.getMethod());
+        if (methodHandlers != null) {
+            return methodHandlers.get(request.getPath());
+        }
+        return null;
+    }
 
     private void sendNotFound(BufferedOutputStream out) throws IOException {
-        out.write((
-                "HTTP/1.1 404 Not Found\r\n" +
-                        "Content-Length: 0\r\n" +
-                        "Connection close\r\n" +
-                        "\r\n"
-        ).getBytes());
-        out.flush();
-    }
-
-
-    private void sendClassicResponse(Path filePath, String mimeType, BufferedOutputStream out) throws IOException {
-        final var template = Files.readString(filePath);
-        final var content = template.replace(
-                "{time}",
-                LocalDateTime.now().toString()
-        ).getBytes();
-        out.write((
-                "HTTP/1.1 200 OK\r\n" +
-                        "Content-Type: " + mimeType + "\r\n" +
-                        "Content-Length: " + content.length + "\r\n" +
-                        "Connection: close\r\n" +
-                        "\r\n"
-        ).getBytes());
-        out.write(content);
-        out.flush();
-    }
-
-    private void sendOKResponse(Path filePath, String mimeType, BufferedOutputStream out) throws IOException {
-        final var length = Files.size(filePath);
-        out.write((
-                "HTTP/1.1 200 OK\r\n" +
-                        "Content-Type: " + mimeType + "\r\n" +
-                        "Content-Length: " + length + "\r\n" +
-                        "Connection: close\r\n" +
-                        "\r\n"
-        ).getBytes());
-        Files.copy(filePath, out);
+        String response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+        out.write(response.getBytes());
         out.flush();
     }
 
