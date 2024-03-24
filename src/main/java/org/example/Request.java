@@ -1,6 +1,7 @@
 package org.example;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.util.Map;
 
 public class Request {
@@ -15,6 +16,7 @@ public class Request {
         this.headers = headers;
         this.body = body;
     }
+
 
     public String getMethod() {
         return method;
