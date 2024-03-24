@@ -19,9 +19,9 @@ public class ServerPropertiesLoading {
 
         try (InputStream input = ServerPropertiesLoading.class.getResourceAsStream(nameSettingsFile)) {
 
-                if (input == null) {
-                    throw new IOException("Файл настроек не найден: " + nameSettingsFile);
-                }
+            if (input == null) {
+                throw new IOException("Файл настроек не найден: " + nameSettingsFile);
+            }
 
             prop.load(input);
 
@@ -32,7 +32,6 @@ public class ServerPropertiesLoading {
             System.err.println("Ошибка при загрузке файла настроек: " + e.getMessage());
         }
     }
-
 
 
     public String getHost() {
