@@ -43,6 +43,10 @@ public class Server {
              BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream())) {
 
             Request request = parseRequest(in);
+            if (request == null) {
+                System.out.println("in is closed");
+                in.close();
+            }
 
             Handler handler = findHandler(request);
             if (handler != null) {
@@ -64,14 +68,18 @@ public class Server {
 
     private Request parseRequest(BufferedReader reader) throws IOException {
         String requestLine = reader.readLine();
-        System.out.println("REQUEST LINE --->>> " + requestLine);
 
-        if (requestLine == null || requestLine.isEmpty()) {
-            throw new IOException("Received an empty request");
+        if (requestLine == null) {
+            throw new IOException("Client closed the connection.");
+        }
+//        System.out.println("REQUEST LINE --->>> " + requestLine);
+
+        if (requestLine.isEmpty()) {
+            throw new IOException("Received an empty request line");
         }
 
         String[] parts = requestLine.split(" ");
-        System.out.println("PARTS --->>> " + Arrays.toString(parts));
+//        System.out.println("parts 0 -> " + parts[0] + " / " + " parts 1 -> " + parts[1] + " parts 2 -> " + parts[2] );
 
         if (parts.length != 3) {
             throw new IOException("Invalid request line: " + requestLine);
@@ -79,19 +87,18 @@ public class Server {
 
         String method = parts[0];
         String path = parts[1];
-
         Map<String, String> headers = new HashMap<>();
+
         String line;
         while ((line = reader.readLine()) != null && !line.isEmpty()) {
-            int separator = line.indexOf(":");
-            if (separator == -1) {
-                continue;
+            String[] headerParts = line.split(": ");
+            if (headerParts.length != 2) {
+                continue; // Пропустить некорректный заголовок
             }
-            String headerName = line.substring(0, separator).trim();
-            String headerValue = line.substring(separator + 1).trim();
-            headers.put(headerName, headerValue);
+            headers.put(headerParts[0].trim(), headerParts[1].trim());
         }
 
+        // Примечание: теперь мы передаем BufferedReader в Request
         return new Request(method, path, headers, reader);
     }
 
