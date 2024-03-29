@@ -1,14 +1,21 @@
 package org.example;
 
+
+import org.apache.commons.fileupload.FileItem;
+import org.apache.commons.fileupload.FileItemFactory;
+import org.apache.commons.fileupload.FileUpload;
+import org.apache.commons.fileupload.FileUploadException;
+import org.apache.commons.fileupload.disk.DiskFileItemFactory;
 import org.apache.hc.core5.http.NameValuePair;
 import org.apache.hc.core5.net.URLEncodedUtils;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 public class Request {
@@ -19,8 +26,9 @@ public class Request {
     private final BufferedReader in;
     private final List<NameValuePair> params;
     private final Map<String, List<String>> postParams = new HashMap<>();
+    private final List<FileItem> multipartItems = new ArrayList<>();
 
-    public Request(String method, String path, Map<String, String> headers, BufferedReader in) {
+    public Request(String method, String path, Map<String, String> headers, BufferedReader in, InputStream inputStream) {
         this.method = method;
         this.path = path;
         this.headers = headers;
@@ -31,7 +39,50 @@ public class Request {
         if (method.equalsIgnoreCase("POST") && headers.containsKey("Content-Type")) {
             parseBody(in, headers.get("Content-Type"));
         }
+
+        // Обработка multipart/form-data
+        String contentType = headers.get("Content-Type");
+        if (contentType != null && contentType.startsWith("multipart/form-data")) {
+            parseMultipartData(inputStream, contentType);
+        }
     }
+
+    private void parseMultipartData(InputStream inputStream, String contentType) {
+        // Создаем фабрику для дискового базового репозитория файлов
+        FileItemFactory factory = new DiskFileItemFactory();
+
+        // Создаем новый обработчик загрузки файлов
+        FileUpload upload = new FileUpload(factory);
+
+        // Настраиваем обработчик загрузки файлов для обработки мультипарт-форматированных данных
+        upload.setHeaderEncoding("UTF-8");
+
+        try {
+
+            int contentLength = Integer.parseInt(headers.get("Content-Length"));
+            InputStreamRequestContext requestContext = new InputStreamRequestContext(inputStream, contentType, contentLength);
+
+            // Парсим запрос, чтобы получить айтемы файла
+            List<FileItem> items = upload.parseRequest(requestContext);
+
+
+        } catch (FileUploadException e) {
+            throw new RuntimeException("Ошибка при разборе мультипарт данных", e);
+        }
+    }
+
+    public FileItem getPart(String name) {
+        return multipartItems.stream()
+                .filter(item -> item.getFieldName().equals(name))
+                .findFirst()
+                .orElse(null);
+    }
+
+    public List<FileItem> getMultipartItems() {
+        return multipartItems;
+    }
+
+
 
     private void parseBody(BufferedReader in, String contentType) {
         if ("application/x-www-form-urlencoded".equalsIgnoreCase(contentType)) {
@@ -46,7 +97,7 @@ public class Request {
                 bodyBuilder.append(line);
             }
 
-            String body = URLDecoder.decode(bodyBuilder.toString(), Charset.forName("UTF-8"));
+            String body = URLDecoder.decode(bodyBuilder.toString(), StandardCharsets.UTF_8);
             Arrays.stream(body.split("&"))
                     .map(param -> param.split("="))
                     .forEach(parts -> {
@@ -72,7 +123,7 @@ public class Request {
 
     private List<NameValuePair> parsQueryString(String path) {
         try {
-            return URLEncodedUtils.parse(new URI(path), Charset.forName("UTF-8"));
+            return URLEncodedUtils.parse(new URI(path), StandardCharsets.UTF_8);
         } catch (URISyntaxException e) {
             throw new RuntimeException(e);
         }
