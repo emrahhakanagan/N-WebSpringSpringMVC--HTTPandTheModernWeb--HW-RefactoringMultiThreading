@@ -14,6 +14,7 @@ public class Server {
     private final Map<String, Map<String, Handler>> handlers = new HashMap<>();
     private ServerPropertiesLoading serverPropertiesLoading;
     private int port;
+    private final int bufferSize = 1024;
 
     public Server() {
         serverPropertiesLoading = new ServerPropertiesLoading();
@@ -38,10 +39,14 @@ public class Server {
 
 
     private void handleConnection(Socket socket) {
-        try (BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-             BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream())) {
+        try (
+                InputStream inputStream = socket.getInputStream();
+                PushbackInputStream pushbackInputStream = new PushbackInputStream(inputStream, bufferSize);
 
-            Request request = parseRequest(in);
+                BufferedReader in = new BufferedReader(new InputStreamReader(pushbackInputStream));
+                BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream())) {
+
+            Request request = parseRequest(in, inputStream);
             if (request == null) {
                 System.out.println("in is closed");
                 in.close();
@@ -65,7 +70,7 @@ public class Server {
     }
 
 
-    private Request parseRequest(BufferedReader reader) throws IOException {
+    private Request parseRequest(BufferedReader reader, InputStream inputStream) throws IOException {
         String requestLine = reader.readLine();
 
         if (requestLine == null) {
@@ -98,7 +103,7 @@ public class Server {
         }
 
         // Примечание: теперь мы передаем BufferedReader в Request
-        return new Request(method, path, headers, reader);
+        return new Request(method, path, headers, reader, inputStream);
     }
 
 
